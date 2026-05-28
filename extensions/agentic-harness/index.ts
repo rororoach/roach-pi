@@ -598,7 +598,7 @@ export default function (pi: ExtensionAPI) {
         "ONLY use these exact agent names — do NOT invent or guess agent names: explorer, worker, planner, plan-worker, plan-validator, plan-compliance, reviewer-feasibility, reviewer-architecture, reviewer-risk, reviewer-bug, reviewer-security, reviewer-performance, reviewer-test-coverage, reviewer-consistency, reviewer-verifier, review-synthesis.",
         "All agents use the default model. Do NOT specify or mention specific models (no Haiku, Sonnet, etc.).",
         "For codebase exploration: use 'explorer'. For general execution: use 'worker'. For plan execution: use 'plan-compliance' → 'plan-worker' → 'plan-validator'.",
-        "For ultraplan milestone reviews: dispatch all 3 reviewers in parallel: reviewer-feasibility, reviewer-architecture, reviewer-risk.",
+        "For milestone planning reviews: dispatch all 3 reviewers in parallel: reviewer-feasibility, reviewer-architecture, reviewer-risk.",
         "For ultrareview code reviews: dispatch 10 tasks in parallel (5 reviewers × 2 seeds): reviewer-bug, reviewer-security, reviewer-performance, reviewer-test-coverage, reviewer-consistency. Then run reviewer-verifier on the aggregated findings, then review-synthesis on the verified result.",
         "Max 12 parallel tasks with 10 concurrent. Chain mode stops on first error.",
         "When calling plan-validator, ALWAYS provide planFile (path to the plan .md file) and planTaskId (the task number to validate). The validator prompt will be built from the plan file automatically — you do not need to compose it. Example: { agent: 'plan-validator', task: 'validate', planFile: 'docs/.../plan.md', planTaskId: 3 }",
@@ -993,7 +993,7 @@ Do not start multi-step implementation without a clear understanding of what the
       "- End with a Self-Review before presenting the plan.",
     ].join("\n"),
     ultraplanning: [
-      "\n\n## Active Workflow: Milestone Planning (Ultraplan)",
+      "\n\n## Active Workflow: Milestone Planning",
       "You are in agentic-milestone-planning mode. Follow the agentic-milestone-planning skill rules strictly:",
       "- Compose a Problem Brief from the current context.",
       "- Dispatch all 3 reviewer agents in parallel using the subagent tool's parallel mode: reviewer-feasibility, reviewer-architecture, reviewer-risk.",
@@ -1023,7 +1023,7 @@ Do not start multi-step implementation without a clear understanding of what the
 
   // Matches user turns that are claude-code skill/command invocations. We suppress
   // phase guidance for these turns so the invoked skill's own instructions are not
-  // overridden by a stale workflow phase (e.g. user ran /ultraplan last week,
+  // overridden by a stale workflow phase (e.g. user ran /plan --milestones last week,
   // never reset-phase, and today invokes /systematic-debugging).
   const SKILL_INVOCATION_RE = /<command-name>|<command-message>|\[skill\]/;
 
@@ -1395,8 +1395,30 @@ Do not start multi-step implementation without a clear understanding of what the
 
   pi.registerCommand("plan", {
     description:
-      "Generate an implementation plan — the agent follows agentic-plan-crafting skill rules",
+      "Generate an implementation plan, or use --milestones to decompose complex work into milestone planning",
     handler: async (args, ctx) => {
+      const rawTopic = args?.trim() || "";
+      const milestoneMode = rawTopic === "--milestones" || rawTopic.startsWith("--milestones ");
+      const topic = milestoneMode ? rawTopic.replace(/^--milestones\s*/, "").trim() : rawTopic;
+
+      if (milestoneMode) {
+        const confirmed = await ctx.ui.confirm(
+          "Start Agentic Milestone Planning",
+          "The agent will:\n1. Compose a Problem Brief\n2. Decide which reviewer perspectives are needed\n3. Dispatch reviewers in parallel\n4. Synthesize a milestone DAG\n\nProceed?"
+        );
+        if (!confirmed) return;
+
+        currentPhase = "ultraplanning";
+        ctx.ui.setStatus("harness", "Agentic milestone workflow in progress...");
+
+        const prompt = topic
+          ? `Decompose the following complex task into milestones: "${topic}"\n\nFollow the agentic-milestone-planning skill rules. First compose a Problem Brief. Then dispatch all 3 reviewer agents in parallel using the subagent tool: reviewer-feasibility, reviewer-architecture, reviewer-risk. After all reviewers complete, synthesize their findings into a milestone DAG.`
+          : `Decompose the current complex task into milestones.\n\nFollow the agentic-milestone-planning skill rules. First compose a Problem Brief from the current context. Then dispatch all 3 reviewer agents in parallel using the subagent tool: reviewer-feasibility, reviewer-architecture, reviewer-risk. After all reviewers complete, synthesize their findings into a milestone DAG.`;
+
+        pi.sendUserMessage(prompt);
+        return;
+      }
+
       const ok = await ctx.ui.confirm(
         "Start Agentic Plan Crafting",
         "The agent will create an executable implementation plan based on current context using the agentic-plan-crafting workflow.\n\nProceed?"
@@ -1406,7 +1428,6 @@ Do not start multi-step implementation without a clear understanding of what the
       currentPhase = "planning";
       ctx.ui.setStatus("harness", "Agentic planning workflow in progress...");
 
-      const topic = args?.trim() || "";
       const prompt = topic
         ? isRootSession
           ? `Create an executable implementation plan for: "${topic}"\n\nFollow the agentic-plan-crafting skill rules. If a Context Brief exists from a previous agentic-clarification, use it as input. If not, use the ask_user_question tool to confirm goal, scope, and tech stack before writing the plan.`
@@ -1414,28 +1435,6 @@ Do not start multi-step implementation without a clear understanding of what the
         : isRootSession
           ? `Create an executable implementation plan for the current task.\n\nFollow the agentic-plan-crafting skill rules. If a Context Brief exists from a previous agentic-clarification, use it as input. If not, use the ask_user_question tool to confirm goal, scope, and tech stack before writing the plan.`
           : `Create an executable implementation plan for the current task.\n\nFollow the agentic-plan-crafting skill rules. If a Context Brief exists from a previous agentic-clarification, use it as input. If not, state any missing goal, scope, or tech-stack information explicitly in the plan assumptions before writing the plan.`;
-
-      pi.sendUserMessage(prompt);
-    },
-  });
-
-  pi.registerCommand("ultraplan", {
-    description:
-      "Decompose a complex task into milestones — the agent dynamically selects reviewers",
-    handler: async (args, ctx) => {
-      const confirmed = await ctx.ui.confirm(
-        "Start Agentic Milestone Planning (Ultraplan)",
-        "The agent will:\n1. Compose a Problem Brief\n2. Decide which reviewer perspectives are needed\n3. Dispatch reviewers in parallel\n4. Synthesize a milestone DAG\n\nProceed?"
-      );
-      if (!confirmed) return;
-
-      currentPhase = "ultraplanning";
-      ctx.ui.setStatus("harness", "Agentic milestone workflow in progress...");
-
-      const topic = args?.trim() || "";
-      const prompt = topic
-        ? `Decompose the following complex task into milestones: "${topic}"\n\nFollow the agentic-milestone-planning skill rules. First compose a Problem Brief. Then dispatch all 3 reviewer agents in parallel using the subagent tool: reviewer-feasibility, reviewer-architecture, reviewer-risk. After all reviewers complete, synthesize their findings into a milestone DAG.`
-        : `Decompose the current complex task into milestones.\n\nFollow the agentic-milestone-planning skill rules. First compose a Problem Brief from the current context. Then dispatch all 3 reviewer agents in parallel using the subagent tool: reviewer-feasibility, reviewer-architecture, reviewer-risk. After all reviewers complete, synthesize their findings into a milestone DAG.`;
 
       pi.sendUserMessage(prompt);
     },
@@ -1654,7 +1653,7 @@ Do not start multi-step implementation without a clear understanding of what the
   });
 
   pi.registerCommand("reset-phase", {
-    description: "Reset the workflow phase to idle (clears clarify/plan/ultraplan mode)",
+    description: "Reset the workflow phase to idle (clears clarify/plan mode)",
     handler: async (_args, ctx) => {
       currentPhase = "idle";
       activeGoalDocument = null;
@@ -1904,7 +1903,7 @@ Do not start multi-step implementation without a clear understanding of what the
     });
 
     ctx.ui.notify(
-      "Agentic Harness loaded: /clarify, /plan, /ultraplan, /reset-phase",
+      "Agentic Harness loaded: /clarify, /plan, /reset-phase",
       "info"
     );
   });

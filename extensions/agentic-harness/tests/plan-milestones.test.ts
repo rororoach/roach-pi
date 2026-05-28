@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import extension from "../index.js";
 
-describe("Ultraplan Command", () => {
-  it("should register ultraplan command and send delegation prompt", async () => {
+describe("Plan milestones mode", () => {
+  it("should route /plan --milestones to the milestone planning delegation prompt", async () => {
     const commands = new Map<string, any>();
 
     const mockPi: any = {
@@ -16,9 +16,10 @@ describe("Ultraplan Command", () => {
 
     extension(mockPi);
 
-    const ultraplan = commands.get("ultraplan");
-    expect(ultraplan).toBeDefined();
-    expect(ultraplan.description).toContain("milestone");
+    const plan = commands.get("plan");
+    expect(plan).toBeDefined();
+    expect(plan.description).toContain("--milestones");
+    expect(commands.has("ultraplan")).toBe(false);
 
     const mockCtx: any = {
       ui: {
@@ -27,7 +28,7 @@ describe("Ultraplan Command", () => {
       },
     };
 
-    await ultraplan.handler("", mockCtx);
+    await plan.handler("--milestones", mockCtx);
 
     // Should delegate to agent via sendUserMessage
     expect(mockPi.sendUserMessage).toHaveBeenCalledTimes(1);
@@ -49,7 +50,7 @@ describe("Ultraplan Command", () => {
     expect(prompt).not.toContain("reviewer-user-value");
   });
 
-  it("should not proceed if user cancels confirmation", async () => {
+  it("should not proceed if user cancels milestone planning confirmation", async () => {
     const commands = new Map<string, any>();
 
     const mockPi: any = {
@@ -63,7 +64,7 @@ describe("Ultraplan Command", () => {
 
     extension(mockPi);
 
-    const ultraplan = commands.get("ultraplan");
+    const plan = commands.get("plan");
     const mockCtx: any = {
       ui: {
         confirm: vi.fn().mockResolvedValue(false),
@@ -71,7 +72,7 @@ describe("Ultraplan Command", () => {
       },
     };
 
-    await ultraplan.handler("", mockCtx);
+    await plan.handler("--milestones", mockCtx);
     expect(mockPi.sendUserMessage).not.toHaveBeenCalled();
   });
 });
